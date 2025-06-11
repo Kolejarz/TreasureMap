@@ -1,4 +1,4 @@
-// Utility for column letters (A, B, ... Z, AA, AB ...)
+// --- Helper: Column Labels (A, B, ... Z, AA, AB, etc.) ---
 function colLabel(n) {
   let label = '';
   while (n >= 0) {
@@ -8,14 +8,22 @@ function colLabel(n) {
   return label;
 }
 
-// Funny things to put in empty cells
-const funnyThings = [
-  "a bunch of berries", "a sneaky beetle", "a shiny stick", "a pinecone",
-  "a blue mushroom", "a squirrel", "a fairy footprint", "a weird stone",
-  "an owl feather", "a frog", "a butterfly", "a sleepy gnome"
-];
+// --- Globals for Descriptions (fetched from descriptions.json) ---
+let DESCRIPTIONS = ["Nothing here."]; // fallback in case JSON fails
 
-// Types for hints
+// Fetch descriptions.json and trigger first map generation
+fetch('descriptions.json')
+  .then(res => res.json())
+  .then(json => {
+    if (Array.isArray(json.descriptions)) DESCRIPTIONS = json.descriptions;
+    doGenerate();
+  })
+  .catch(() => {
+    // fallback in case of fetch error
+    doGenerate();
+  });
+
+// --- Hint Definitions ---
 const hintTypes = [
   { dir: 'N', label: 'north', dx: 0, dy: -1 },
   { dir: 'S', label: 'south', dx: 0, dy: 1 },
@@ -23,16 +31,13 @@ const hintTypes = [
   { dir: 'E', label: 'east', dx: 1, dy: 0 }
 ];
 
-function generateMap(rows, cols, chestCount, hintCount, searchAgainCount, funnyCount) {
-  // Build cell index list
+// --- Map Generator ---
+function generateMap(rows, cols, chestCount, hintCount, searchAgainCount) {
+  // All possible cell coords
   const cells = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      cells.push({ r, c });
-    }
-  }
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push({ r, c });
 
-  // Shuffle utility
+  // Fisher-Yates Shuffle
   function shuffle(arr) {
     let a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -44,73 +49,70 @@ function generateMap(rows, cols, chestCount, hintCount, searchAgainCount, funnyC
 
   // Place chests
   let shuffled = shuffle(cells);
-  const chests = shuffled.slice(0, chestCount).map(({r, c}) => ({ r, c, coins: 1 + Math.floor(Math.random()*3) }));
+  const chests = shuffled.slice(0, chestCount).map(({r, c}) => ({
+    r, c, coins: 1 + Math.floor(Math.random() * 3)
+  }));
 
-  // Mark chests on a map
   const isChest = Array.from({length: rows}, () => Array(cols).fill(false));
   chests.forEach(({r, c}) => { isChest[r][c] = true; });
 
-  // Hints: only on non-chest cells
+  // Place hints (only in non-chest cells)
   shuffled = shuffle(cells.filter(({r, c}) => !isChest[r][c]));
   let hints = [];
   for (let i = 0; i < hintCount && i < shuffled.length; i++) {
     const {r, c} = shuffled[i];
-    // Randomly pick a hint type
-    const dir = hintTypes[Math.floor(Math.random()*hintTypes.length)];
-    let count = 0, rr = r+dir.dy, cc = c+dir.dx;
-    // Look in that direction until end of board
+    const dir = hintTypes[Math.floor(Math.random() * hintTypes.length)];
+    let count = 0, rr = r + dir.dy, cc = c + dir.dx;
     while (rr >= 0 && rr < rows && cc >= 0 && cc < cols) {
       if (isChest[rr][cc]) count++;
       rr += dir.dy; cc += dir.dx;
     }
-    // Sometimes, instead, put a neighborhood or "none in neighborhood" hint
     let content;
     if (Math.random() < 0.5) {
       if (count > 0) content = `There is at least one treasure to the ${dir.label}.`;
       else content = `There are no chests to the ${dir.label}.`;
     } else {
-      // Count chests in 8-neighbor cells
       let neighbors = 0;
       for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
         if (dr === 0 && dc === 0) continue;
-        const nr = r+dr, nc = c+dc;
-        if (nr>=0 && nr<rows && nc>=0 && nc<cols && isChest[nr][nc]) neighbors++;
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && isChest[nr][nc]) neighbors++;
       }
       if (neighbors === 0) content = "There are no chests in the neighborhood of this field.";
       else if (neighbors === 1) content = "There is exactly one chest nearby.";
       else content = `There are ${neighbors} chests in the neighborhood.`;
     }
-    hints.push({r, c, content});
+    hints.push({ r, c, content });
   }
-  // Mark hints on map
   const isHint = Array.from({length: rows}, () => Array(cols).fill(null));
-  hints.forEach(({r,c,content}) => { isHint[r][c] = content; });
+  hints.forEach(({ r, c, content }) => { isHint[r][c] = content; });
 
-  // Place "search again" and funny things, then fill rest with "nothing"
-  const left = cells.filter(({r,c}) => !isChest[r][c] && !isHint[r][c]);
-  shuffled = shuffle(left);
+  // Place "search again"
+  const nonSpecial = cells.filter(({ r, c }) => !isChest[r][c] && !isHint[r][c]);
+  shuffled = shuffle(nonSpecial);
   const searchAgain = shuffled.slice(0, searchAgainCount);
-  const funny = shuffled.slice(searchAgainCount, searchAgainCount+funnyCount);
-  // Rest is empty
-  const empty = shuffled.slice(searchAgainCount+funnyCount);
+  const isSearchAgain = Array.from({length: rows}, () => Array(cols).fill(false));
+  searchAgain.forEach(({ r, c }) => { isSearchAgain[r][c] = true; });
 
-  // Build the final map
+  // Fill the grid
   const fieldContent = Array.from({length: rows}, () => Array(cols).fill(""));
-  // Place chests
-  chests.forEach(({r,c,coins}) => fieldContent[r][c] = `Treasure chest (${coins} coins)`);
-  // Place hints
-  hints.forEach(({r,c,content}) => fieldContent[r][c] = content);
+  // Chests
+  chests.forEach(({ r, c, coins }) => fieldContent[r][c] = `Treasure chest (${coins} coin${coins>1?'s':''})`);
+  // Hints
+  hints.forEach(({ r, c, content }) => fieldContent[r][c] = content);
   // Search again
-  searchAgain.forEach(({r,c}) => fieldContent[r][c] = "Search again!");
-  // Funny things
-  funny.forEach(({r,c},i) => fieldContent[r][c] = funnyThings[i % funnyThings.length]);
-  // Empty
-  empty.forEach(({r,c}) => fieldContent[r][c] = "Nothing here.");
+  searchAgain.forEach(({ r, c }) => fieldContent[r][c] = "Search again!");
+  // All other cells: random description from DESCRIPTIONS
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    if (!fieldContent[r][c]) {
+      fieldContent[r][c] = DESCRIPTIONS[Math.floor(Math.random() * DESCRIPTIONS.length)];
+    }
+  }
 
   return fieldContent;
 }
 
-// Generate the grid/table
+// --- Renderers ---
 function renderGrid(fieldContent) {
   const rows = fieldContent.length, cols = fieldContent[0].length;
   const grid = document.createElement('div');
@@ -131,17 +133,17 @@ function renderGrid(fieldContent) {
   for (let r = 0; r < rows; r++) {
     const rowDiv = document.createElement('div'); rowDiv.className = "grid-row";
     const rowLabel = document.createElement('div');
-    rowLabel.className = "grid-cell"; rowLabel.textContent = (r+1);
+    rowLabel.className = "grid-cell"; rowLabel.textContent = (r + 1);
     rowLabel.style.background = "#c0edcf";
     rowDiv.appendChild(rowLabel);
 
     for (let c = 0; c < cols; c++) {
       const cell = document.createElement('div');
       cell.className = "grid-cell";
-      cell.textContent = colLabel(c)+(r+1);
+      cell.textContent = colLabel(c) + (r + 1);
 
       // Tooltip on hover
-      cell.onmouseenter = (e) => {
+      cell.onmouseenter = () => {
         let tip = document.createElement('div');
         tip.className = 'tooltip';
         tip.textContent = fieldContent[r][c];
@@ -158,26 +160,24 @@ function renderGrid(fieldContent) {
   return grid;
 }
 
-// Output as text list
 function renderList(fieldContent) {
   let out = [];
   const rows = fieldContent.length, cols = fieldContent[0].length;
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++)
-      out.push(`${colLabel(c)}${r+1}: ${fieldContent[r][c]}`);
+      out.push(`${colLabel(c)}${r + 1}: ${fieldContent[r][c]}`);
   return out.join('\n');
 }
 
-// Set up
+// --- Main action ---
 function doGenerate() {
-  const rows = parseInt(document.getElementById('rows').value,10);
-  const cols = parseInt(document.getElementById('cols').value,10);
-  const chests = parseInt(document.getElementById('chests').value,10);
-  const hints = parseInt(document.getElementById('hints').value,10);
-  const searchAgain = parseInt(document.getElementById('searchAgain').value,10);
-  const funny = parseInt(document.getElementById('funny').value,10);
+  const rows = parseInt(document.getElementById('rows').value, 10);
+  const cols = parseInt(document.getElementById('cols').value, 10);
+  const chests = parseInt(document.getElementById('chests').value, 10);
+  const hints = parseInt(document.getElementById('hints').value, 10);
+  const searchAgain = parseInt(document.getElementById('searchAgain').value, 10);
 
-  const fieldContent = generateMap(rows, cols, chests, hints, searchAgain, funny);
+  const fieldContent = generateMap(rows, cols, chests, hints, searchAgain);
 
   // Grid
   const grid = renderGrid(fieldContent);
@@ -189,5 +189,5 @@ function doGenerate() {
   document.getElementById('list').textContent = renderList(fieldContent);
 }
 
+// Hook up the button (will run after fetch if descriptions.json loads)
 document.getElementById('generate').onclick = doGenerate;
-window.onload = doGenerate;
