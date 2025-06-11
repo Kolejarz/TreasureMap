@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Magical Forest Map Generator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="controls">
+    <label>Rows: <input type="number" id="rows" value="8" min="1" max="26"></label>
+    <label>Cols: <input type="number" id="cols" value="10" min="1" max="26"></label>
+    <label>Chests: <input type="number" id="chests" value="8" min="1"></label>
+    <label>Hints: <input type="number" id="hints" value="8" min="0"></label>
+    <label>Search Again: <input type="number" id="searchAgain" value="5" min="0"></label>
+    <label>Funny: <input type="number" id="funny" value="6" min="0"></label>
+    <button id="generate">Generate Map</button>
+  </div>
+  <div id="grid"></div>
+  <pre id="list"></pre>
+  <script src="script.js"></script>
+</body>
+</html>
